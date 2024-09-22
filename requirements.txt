@@ -1,4 +1,3 @@
-install
 aiohttp-sse-client
 aiohttp
 uvicorn
