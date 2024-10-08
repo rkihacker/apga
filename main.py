@@ -38,7 +38,7 @@ ALLOWED_MODELS = [
     {"id": "gemini-1.5-flash", "name": "chat-gemini-flash"},
     {"id": "gemini-1.5-flash-exp-0827", "name": "chat-gemini-flash-exp"},
     {"id": "gemini-1.5-pro", "name": "chat-gemini-pro"},
-    {"id": "gemini-1.5-pro-exp-0827", "name": "chat-gemini-pro-exp"},
+    {"id": "gemini-1.5-pro-002", "name": "chat-gemini-pro-002"},
     {"id": "claude-3.5-sonnet", "name": "claude-sonnet"},
     {"id": "claude-3-haiku", "name": "claude-haiku"},
     {"id": "claude-3-opus", "name": "claude-opus"},
@@ -204,15 +204,9 @@ async def send_prompt_async(messages, model):
     prompt = messages[-1].content
 
     # 构建消息列表
-    input_messages = [
-        {
-            "content": f"Respond in language of \"{prompt}\" unless requested.",
-            "type": "system",
-            "unsaved": True
-        }
-    ]
+    input_messages = []
 
-    # 只有当 messages[:-1] 不为空时，才添加历史消息
+    # 只有当 messages不为空时，才添加历史消息
     if len(messages) > 1:
         input_messages.extend([
             {
@@ -225,7 +219,17 @@ async def send_prompt_async(messages, model):
     # 添加最后的人类消息
     input_messages.append({
         "type": "human",
-        "content": f"{prompt}\n* Use tools only when needed. Each tool should be finished one per line starting with $tools.\n$tools.generateImage(\"<A prompt that fits the response and describes the image style, historical, place setting and characters well for single image. Don't reuse prompts.>\", \"<Optional: UsingFace | SameShape>\");\n$tools.generateVideo(\"<Prompt for generating a 2s video clip that fits the response in English>\", \"<Optional: InPainting | UsingFace>\", \"<Optional: A word of segment to replace with InPainting>\", <Degree of segment change for InPainting>);\n$tools.generateAudio(\"<Prompt for generating a 10-second sound effect that fits the response in English. Use at the end of the response.>\");\n$tools.addChoice(`<Provide a selectable response option for the user without number.>`);\nAlways provide a response message too.\nIMPORTANT: NEVER USE TOOLS WITHOUT *EXPLICIT* USER REQUEST.",
+        "content": f'''{prompt}\n
+                    INTERNAL INSTRUCTIONS:\n
+                    * Use tools judiciously to fulfill the user's request effectively.\n
+                    * Each tool usage must be on a new line, starting with "$tools."\n
+                    * Always provide a clear response message along with any tool usage.\n
+                    * Format: $tools.toolName(parameters)\n
+                    $tools.generateImage("<A prompt that fits the response and describes the image style, historical, place setting and characters well for single image. Don't reuse prompts.>", "<Optional: UsingFace | SameShape>")\n
+                    $tools.generateVideo("<Prompt for generating a 2s video clip that fits the response in English>", "<Optional: InPainting | UsingFace>", "<Optional: A word of segment to replace with InPainting>", <Degree of segment change for InPainting>)\n
+                    $tools.generateAudio("<Prompt for generating a 10-second sound effect that fits the response in English. Use at the end of the response.>")
+                    $tools.addChoice(`<Provide a selectable response option for the user without number.>`)\n
+                    Use the tool only when explicitly requested by the user.''',
         "unsaved": True
     })
     if model == "chat-o1-mini":
