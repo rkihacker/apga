@@ -286,7 +286,6 @@ async def chat_completions(
         'Cache-Control': 'no-cache',
         'Connection': 'keep-alive',
         'Content-Type': 'application/json',
-        #'Cookie': '_pk_id.1=; _pk_ses.1=1; initialInfo=%7B%22referrer%22%3A%22direct%22%2C%22userAgent%22%3A%22Mozilla%2F5.0%20(Windows%20NT%2010.0%3B%20Win64%3B%20x64)%20AppleWebKit%2F537.36%20(KHTML%2C%20like%20Gecko)%20Chrome%2F129.0.0.0%20Safari%2F537.36%20Edg%2F129.0.0.0%22%2C%22initialURL%22%3A%22https%3A%2F%2Fapp.giz.ai%2Fassistant%3Fmode%3Dchat%22%2C%22browserLanguage%22%3A%22zh-CN%22%2C%22downlink%22%3A1.3%2C%22pageTitle%22%3A%22GizAI%22%7D',
         'Cookie': os.environ["full_cookie"],
         'Origin': 'https://app.giz.ai',
         'Pragma': 'no-cache',
