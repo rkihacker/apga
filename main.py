@@ -9,9 +9,11 @@ import secrets
 import string
 import uuid
 from typing import Any, Dict, List, Optional
-from aiohttp_sse_client import client as sse_client
+
 import aiohttp
+from aiohttp_sse_client import client as sse_client
 from aiohttp import ClientTimeout
+
 import uvicorn
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Depends
@@ -19,17 +21,22 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from starlette.middleware.cors import CORSMiddleware
 from starlette.responses import StreamingResponse, Response
+
 import demjson3
 
+# Configure logging
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
+# Load environment variables
 load_dotenv()
 app = FastAPI()
+
+# Constants and Configuration
 BASE_URL = "https://aichatonlineorg.erweima.ai/aichatonline"
-APP_SECRET = os.getenv("APP_SECRET","666")
+APP_SECRET = os.getenv("APP_SECRET", "1")  # Replace with a secure default
 ALLOWED_MODELS = [
     {"id": "gpt-4o", "name": "chat-gpt4"},
     {"id": "gpt-4o-mini", "name": "chat-gpt4m"},
@@ -46,85 +53,85 @@ ALLOWED_MODELS = [
     {"id": "llama-3.1-8b", "name": "llama-3-8b"},
     {"id": "mistral-large2", "name": "mistral-large"},
 ]
-# 配置CORS
+
+# Configure CORS (Restrict origins in production)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # 允许所有源，您可以根据需要限制特定源
+    allow_origins=["*"],  # Update with specific origins in production
     allow_credentials=True,
-    allow_methods=["*"],  # 允许所有方法
-    allow_headers=["*"],  # 允许所有头
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
+
+# Security Scheme
 security = HTTPBearer()
 
-
+# Pydantic Models
 class Message(BaseModel):
     role: str
     content: str
-
 
 class ChatRequest(BaseModel):
     model: str
     messages: List[Message]
     stream: Optional[bool] = False
 
+# Utility Functions
+def generate_random_string(length=21):
+    chars = string.ascii_letters + string.digits + "_-"
+    return ''.join(secrets.choice(chars) for _ in range(length))
 
-def simulate_data(content, model):
-    return {
-        "id": f"chatcmpl-{uuid.uuid4()}",
-        "object": "chat.completion.chunk",
-        "created": int(datetime.now().timestamp()),
-        "model": model,
-        "choices": [
-            {
-                "index": 0,
-                "delta": {"content": content, "role": "assistant"},
-                "finish_reason": None,
-            }
-        ],
-        "usage": None,
-    }
+def parse_js_object(data: str) -> Dict[str, Any]:
+    try:
+        return demjson3.decode(data)
+    except demjson3.JSONDecodeError as e:
+        logger.error(f"JSON decode error: {e}")
+        return {}
 
-
-def stop_data(content, model):
-    return {
-        "id": f"chatcmpl-{uuid.uuid4()}",
-        "object": "chat.completion.chunk",
-        "created": int(datetime.now().timestamp()),
-        "model": model,
-        "choices": [
-            {
-                "index": 0,
-                "delta": {"content": content, "role": "assistant"},
-                "finish_reason": "stop",
-            }
-        ],
-        "usage": None,
-    }
-
+def generate_cookie() -> str:
+    current_timestamp = int(time.time())
+    pk_id = f"{uuid.uuid4().hex[:16]}.{current_timestamp}"
+    current_time = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
     
+    initial_info = {
+        "referrer": "direct",
+        "date": current_time,
+        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+        "initialURL": "https://app.giz.ai/assistant?mode=chat",
+        "browserLanguage": "zh-CN",
+        "downlink": round(random.uniform(1.0, 2.0), 2),
+        "pageTitle": "GizAI"
+    }
+    
+    initial_info_json = json.dumps(initial_info, separators=(',', ':'))
+    initial_info_encoded = quote(initial_info_json, safe='')
+    cookie = f"_pk_id.1.2e21={pk_id}; _pk_ses.1.2e21=1; initialInfo={initial_info_encoded}"
+    return cookie
+
 def create_chat_completion_data(content: str, model: str, finish_reason: Optional[str] = None) -> Dict[str, Any]:
     return {
         "id": f"chatcmpl-{uuid.uuid4()}",
-        "object": "chat.completion.chunk",
+        "object": "chat.completion",
         "created": int(datetime.now().timestamp()),
         "model": model,
         "choices": [
             {
                 "index": 0,
-                "delta": {"content": content, "role": "assistant"},
+                "message": {"role": "assistant", "content": content},
                 "finish_reason": finish_reason,
             }
         ],
         "usage": None,
     }
 
-
+# Authentication Dependency
 def verify_app_secret(credentials: HTTPAuthorizationCredentials = Depends(security)):
     if credentials.credentials != APP_SECRET:
+        logger.warning("Invalid APP_SECRET attempted.")
         raise HTTPException(status_code=403, detail="Invalid APP_SECRET")
     return credentials.credentials
 
-
+# API Endpoints
 @app.options("/hf/v1/chat/completions")
 async def chat_completions_options():
     return Response(
@@ -136,131 +143,9 @@ async def chat_completions_options():
         },
     )
 
-
-def replace_escaped_newlines(input_string: str) -> str:
-    return input_string.replace("\\n", "\n")
-
-
 @app.get("/hf/v1/models")
 async def list_models():
     return {"object": "list", "data": ALLOWED_MODELS}
-
-def rV(e=21):
-    chars = string.ascii_lowercase + string.digits + string.ascii_uppercase + "_-"
-    return ''.join(secrets.choice(chars) for _ in range(e))
-
-def parse_js_object(data):
-    return demjson3.decode(data)
-
-
-def generate_cookie():
-    # 生成当前时间戳（以秒为单位）
-    current_timestamp = int(time.time())
-
-    # 生成随机的 pk_id
-    pk_id = f"{uuid.uuid4().hex[:16]}.{current_timestamp}"
-
-    # 生成当前UTC时间，格式化为正确的字符串
-    current_time = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
-
-    # 生成 initialInfo 字典
-    initial_info = {
-        "referrer": "direct",
-        "date": current_time,
-        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
-        "initialURL": "https://app.giz.ai/assistant?mode=chat",
-        "browserLanguage": "zh-CN",
-        "downlink": round(random.uniform(1.0, 2.0), 2),
-        "pageTitle": "GizAI"
-    }
-
-    # 将 initialInfo 转换为 JSON 字符串并进行正确的 URL 编码
-    initial_info_json = json.dumps(initial_info, separators=(',', ':'))
-    initial_info_encoded = quote(initial_info_json, safe='')
-
-    # 构建完整的 cookie 字符串
-    cookie = f"_pk_id.1.2e21={pk_id}; _pk_ses.1.2e21=1; initialInfo={initial_info_encoded}"
-
-    return cookie
-
-
-async def send_prompt_async(messages, model):
-    url = 'https://app.giz.ai/api/data/users/inferenceServer.infer'
-    headers = {
-        'Accept': 'application/json, text/plain, */*',
-        'Accept-Language': 'zh-CN,zh;q=0.9',
-        'Cache-Control': 'no-cache',
-        'Connection': 'keep-alive',
-        'Content-Type': 'application/json',
-        #'Cookie': '_pk_id.1=; _pk_ses.1=1; initialInfo=%7B%22referrer%22%3A%22direct%22%2C%22userAgent%22%3A%22Mozilla%2F5.0%20(Windows%20NT%2010.0%3B%20Win64%3B%20x64)%20AppleWebKit%2F537.36%20(KHTML%2C%20like%20Gecko)%20Chrome%2F129.0.0.0%20Safari%2F537.36%20Edg%2F129.0.0.0%22%2C%22initialURL%22%3A%22https%3A%2F%2Fapp.giz.ai%2Fassistant%3Fmode%3Dchat%22%2C%22browserLanguage%22%3A%22zh-CN%22%2C%22downlink%22%3A1.3%2C%22pageTitle%22%3A%22GizAI%22%7D',
-        'Cookie': os.environ['full_cookie'],
-        'Origin': 'https://app.giz.ai',
-        'Pragma': 'no-cache',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36 Edg/129.0.0.0',
-        'sec-ch-ua': '"Microsoft Edge";v="129", "Not=A?Brand";v="8", "Chromium";v="129"',
-        'sec-ch-ua-mobile': '?0',
-        'sec-ch-ua-platform': '"Windows"'
-    }
-    prompt = messages[-1].content
-
-    # 构建消息列表
-    input_messages = []
-
-    # 只有当 messages不为空时，才添加历史消息
-    if len(messages) > 1:
-        input_messages.extend([
-            {
-                "content": msg.content,
-                "type": "human" if msg.role == "user" else "ai" if msg.role == "assistant" else msg.role,
-                "unsaved": True
-            } for msg in messages[:-1]
-        ])
-
-    # 添加最后的人类消息
-    input_messages.append({
-        "type": "human",
-        "content": f'''{prompt}\n
-                    INTERNAL INSTRUCTIONS:\n
-                    * Use tools judiciously to fulfill the user's request effectively.\n
-                    * Each tool usage must be on a new line, starting with "$tools."\n
-                    * Always provide a clear response message along with any tool usage.\n
-                    * Format: $tools.toolName(parameters)\n
-                    $tools.generateImage("<A prompt that fits the response and describes the image style, historical, place setting and characters well for single image. Don't reuse prompts.>", "<Optional: UsingFace | SameShape>")\n
-                    $tools.generateVideo("<Prompt for generating a 2s video clip that fits the response in English>", "<Optional: InPainting | UsingFace>", "<Optional: A word of segment to replace with InPainting>", <Degree of segment change for InPainting>)\n
-                    $tools.generateAudio("<Prompt for generating a 10-second sound effect that fits the response in English. Use at the end of the response.>")
-                    $tools.addChoice(`<Provide a selectable response option for the user without number.>`)\n
-                    Use the tool only when explicitly requested by the user.''',
-        "unsaved": True
-    })
-    if model == "chat-o1-mini":
-        input_messages = [{
-        "type": "human",
-        "content": f"{prompt}",
-        "unsaved": True
-    }]
-    data = {
-        "model": "chat",
-        "baseModel": model,
-        "input": {
-            "messages": input_messages,
-            "prompt": f"{prompt}",
-            "mode": "chat"
-        },
-        "subscribeId": f"{rV()}",
-        "instanceId": f"{os.getenv('instanceId')}"
-    }
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(url, headers=headers, json=data) as response:
-                result = await response.text()
-                response.raise_for_status()
-                # 如果需要，你可以在这里处理响应
-                # result = await response.json()
-                # print("Response:", result)
-    except aiohttp.ClientError as e:
-        logger.error(f"Send prompt error: {e}\n{result}")
-        # 可以选择在这里重新抛出异常，或者进行其他错误处理
-
 
 @app.post("/hf/v1/chat/completions")
 async def chat_completions(
@@ -269,24 +154,28 @@ async def chat_completions(
     logger.info(f"Received chat completion request for model: {request.model}")
 
     if request.model not in [model['id'] for model in ALLOWED_MODELS]:
+        logger.error(f"Model {request.model} is not allowed.")
         raise HTTPException(
             status_code=400,
             detail=f"Model {request.model} is not allowed. Allowed models are: {', '.join(model['id'] for model in ALLOWED_MODELS)}",
         )
-    model_name = 'chat-gpt4'
-    for model in ALLOWED_MODELS:
-        if request.model == model["id"]:
-            model_name = model["name"]
+    
+    # Retrieve model name
+    model_name = next((model["name"] for model in ALLOWED_MODELS if model["id"] == request.model), 'chat-gpt4')
+    
+    # Generate instanceId and full_cookie
+    instance_id = generate_random_string()
+    os.environ["instanceId"] = instance_id
+    full_cookie = generate_cookie()
+    os.environ["full_cookie"] = full_cookie
 
-    os.environ["instanceId"] = rV()
-    os.environ["full_cookie"] = generate_cookie()
     headers = {
         'Accept': 'application/json, text/plain, */*',
         'Accept-Language': 'zh-CN,zh;q=0.9',
         'Cache-Control': 'no-cache',
         'Connection': 'keep-alive',
         'Content-Type': 'application/json',
-        'Cookie': os.environ["full_cookie"],
+        'Cookie': full_cookie,
         'Origin': 'https://app.giz.ai',
         'Pragma': 'no-cache',
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36 Edg/129.0.0.0',
@@ -295,13 +184,78 @@ async def chat_completions(
         'sec-ch-ua-platform': '"Windows"'
     }
 
+    async def send_prompt_async(messages, model, headers):
+        url = 'https://app.giz.ai/api/data/users/inferenceServer.infer'
+        prompt = messages[-1].content
+
+        input_messages = []
+
+        if len(messages) > 1:
+            input_messages.extend([
+                {
+                    "content": msg.content,
+                    "type": "human" if msg.role == "user" else "ai" if msg.role == "assistant" else msg.role,
+                    "unsaved": True
+                } for msg in messages[:-1]
+            ])
+
+        # Add the last human message with internal instructions
+        input_messages.append({
+            "type": "human",
+            "content": f'''{prompt}\n
+                INTERNAL INSTRUCTIONS:\n
+                * Use tools judiciously to fulfill the user's request effectively.\n
+                * Each tool usage must be on a new line, starting with "$tools."\n
+                * Always provide a clear response message along with any tool usage.\n
+                * Format: $tools.toolName(parameters)\n
+                $tools.generateImage("<A prompt that fits the response and describes the image style, historical, place setting and characters well for single image. Don't reuse prompts.>", "<Optional: UsingFace | SameShape>")\n
+                $tools.generateVideo("<Prompt for generating a 2s video clip that fits the response in English>", "<Optional: InPainting | UsingFace>", "<Optional: A word of segment to replace with InPainting>", <Degree of segment change for InPainting>)\n
+                $tools.generateAudio("<Prompt for generating a 10-second sound effect that fits the response in English. Use at the end of the response.>")
+                $tools.addChoice(`<Provide a selectable response option for the user without number.>`)\n
+                Use the tool only when explicitly requested by the user.''',
+            "unsaved": True
+        })
+
+        if model == "chat-o1-mini":
+            input_messages = [{
+                "type": "human",
+                "content": f"{prompt}",
+                "unsaved": True
+            }]
+
+        data = {
+            "model": "chat",
+            "baseModel": model,
+            "input": {
+                "messages": input_messages,
+                "prompt": f"{prompt}",
+                "mode": "chat"
+            },
+            "subscribeId": generate_random_string(),
+            "instanceId": instance_id
+        }
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, headers=headers, json=data) as response:
+                    response.raise_for_status()
+                    result = await response.text()
+                    return result
+        except aiohttp.ClientError as e:
+            logger.error(f"Send prompt error: {e}")
+            raise HTTPException(status_code=500, detail="Failed to send prompt to GizAI.")
+
     async def generate():
-        url = f'https://app.giz.ai/api/notification/{os.getenv("instanceId")}'
-        # 设置超时时间，例如60秒
+        url = f'https://app.giz.ai/api/notification/{instance_id}'
         timeout = ClientTimeout(total=120)
-        async with sse_client.EventSource(url, headers=headers,timeout=timeout) as event_source:
-            # 发送 prompt
-            await send_prompt_async(request.messages, model_name)
+        async with sse_client.EventSource(url, headers=headers, timeout=timeout) as event_source:
+            # Send the prompt
+            response = await send_prompt_async(request.messages, model_name, headers)
+            if not response:
+                logger.error("No response from send_prompt_async")
+                return
+
+            # Process incoming events
             async for event in event_source:
                 if event.data:
                     try:
@@ -321,33 +275,22 @@ async def chat_completions(
                         logger.error(f"Problematic data: {event.data}")
 
     if request.stream:
-        logger.info("Streaming response")
+        logger.info("Streaming response initiated.")
         return StreamingResponse(generate(), media_type="text/event-stream")
     else:
-        logger.info("Non-streaming response")
+        logger.info("Non-streaming response initiated.")
         full_response = ""
         async for chunk in generate():
             if chunk.startswith("data: ") and not chunk[6:].startswith("[DONE]"):
-                # print(chunk)
-                data = json.loads(chunk[6:])
-                if data["choices"][0]["delta"].get("content"):
-                    full_response += data["choices"][0]["delta"]["content"]
-        
-        return {
-            "id": f"chatcmpl-{uuid.uuid4()}",
-            "object": "chat.completion",
-            "created": int(datetime.now().timestamp()),
-            "model": request.model,
-            "choices": [
-                {
-                    "index": 0,
-                    "message": {"role": "assistant", "content": full_response},
-                    "finish_reason": "stop",
-                }
-            ],
-            "usage": None,
-        }
+                try:
+                    data = json.loads(chunk[6:])
+                    if data["choices"][0]["message"].get("content"):
+                        full_response += data["choices"][0]["message"]["content"]
+                except json.JSONDecodeError as e:
+                    logger.error(f"JSON decode error: {e}")
+                    continue
 
+        return create_chat_completion_data(full_response, request.model, 'stop')
 
 
 if __name__ == "__main__":
